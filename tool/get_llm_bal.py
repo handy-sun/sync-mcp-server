@@ -23,10 +23,11 @@ def check_balance(base_url: str, api_key: str) -> dict:
         return {"valid": False, "error": str(e.reason)}
 
     remaining = first_present(data, "remaining", "quota.remaining", "balance")
+    total = first_present(data, "total", "quota.total", "limit")
     unit = first_present(data, "unit", "quota.unit") or "USD"
     is_valid = data.get("is_active", data.get("isValid", True))
 
-    return {"valid": is_valid, "remaining": remaining, "unit": unit, "raw": data}
+    return {"valid": is_valid, "remaining": remaining, "total": total, "unit": unit, "raw": data}
 
 
 def first_present(d: dict, *paths: str):
@@ -51,7 +52,7 @@ def deep_get(d: dict, path: str):
 def mask_key(key: str, show: int = 6) -> str:
     if len(key) <= show:
         return key
-    return key[:show] + "*" * (len(key) - show)
+    return key[:show] + "*" * min(len(key) - show, 8)
 
 
 def to_decimal(value):
@@ -69,7 +70,7 @@ def to_decimal(value):
 def format_decimal(amount: Decimal) -> str:
     if amount == amount.to_integral_value():
         return str(amount.quantize(Decimal("1")))
-    return format(amount.normalize(), "f")
+    return format(amount.normalize().quantize(Decimal("0.001")), "f")
 
 
 def summarize_totals(results):
@@ -135,8 +136,13 @@ def main():
             print(f"[{r['key']}] ERROR: {r['error']}")
         else:
             status = "ACTIVE" if r["valid"] else "INACTIVE"
-            remaining = r["remaining"] if r["remaining"] is not None else "N/A"
-            print(f"[{r['key']}] {status} | Remaining: {remaining} {r['unit']}")
+            remain = format_decimal(to_decimal(r["remaining"])) if r["remaining"] is not None else "N/A"
+            total = format_decimal(to_decimal(r["total"])) if r.get("total") is not None else None
+            unit = r["unit"]
+            if total is not None:
+                print(f"[{r['key']}] {status} | {remain} / {total} {unit} (Remain/Total)")
+            else:
+                print(f"[{r['key']}] {status} | {remain} {unit} (Remain)")
 
     print(f"Total Remaining: {format_totals(total_remaining)}")
 
