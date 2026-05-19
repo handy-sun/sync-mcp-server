@@ -1,0 +1,82 @@
+#!/usr/bin/env python3
+"""Check LLM API key remaining balance via /v1/usage endpoint."""
+
+import argparse
+import json
+import os
+import sys
+from urllib.request import Request, urlopen
+from urllib.error import HTTPError, URLError
+
+
+def check_balance(base_url: str, api_key: str) -> dict:
+    url = f"{base_url.rstrip('/')}/v1/usage"
+    req = Request(url, headers={"Authorization": f"Bearer {api_key}"})
+    try:
+        with urlopen(req, timeout=10) as resp:
+            data = json.loads(resp.read())
+    except HTTPError as e:
+        body = e.read().decode(errors="replace")
+        return {"valid": False, "error": f"HTTP {e.code}: {body[:200]}"}
+    except URLError as e:
+        return {"valid": False, "error": str(e.reason)}
+
+    remaining = data.get("remaining") or deep_get(data, "quota.remaining") or data.get("balance")
+    unit = data.get("unit") or deep_get(data, "quota.unit") or "USD"
+    is_valid = data.get("is_active", data.get("isValid", True))
+
+    return {"valid": is_valid, "remaining": remaining, "unit": unit, "raw": data}
+
+
+def deep_get(d: dict, path: str):
+    """Get nested dict value by dot-separated path."""
+    keys = path.split(".")
+    for k in keys:
+        if not isinstance(d, dict):
+            return None
+        d = d.get(k)
+    return d
+
+
+def mask_key(key: str, show: int = 6) -> str:
+    if len(key) <= show:
+        return key
+    return key[:show] + "*" * (len(key) - show)
+
+
+def main():
+    parser = argparse.ArgumentParser(description="Check LLM API key balance")
+    parser.add_argument("-u", "--url", required=True, help="API base URL, e.g. https://api.example.com")
+    parser.add_argument("-k", "--keys", nargs="+", help="API key(s), or set LLM_API_KEY env")
+    parser.add_argument("--json", action="store_true", help="Output raw JSON")
+    args = parser.parse_args()
+
+    keys = args.keys or [os.environ.get("LLM_API_KEY")]
+    if not keys or not keys[0]:
+        parser.error("No API key provided. Use -k or set LLM_API_KEY env var.")
+
+    results = []
+    for key in keys:
+        r = check_balance(args.url, key)
+        r["key"] = mask_key(key)
+        results.append(r)
+
+    if args.json:
+        print(json.dumps(results, indent=2, ensure_ascii=False))
+        return
+
+    for r in results:
+        if r.get("error"):
+            print(f"[{r['key']}] ERROR: {r['error']}")
+        else:
+            status = "ACTIVE" if r["valid"] else "INACTIVE"
+            remaining = r["remaining"] if r["remaining"] is not None else "N/A"
+            print(f"[{r['key']}] {status} | Remaining: {remaining} {r['unit']}")
+
+    ## exit 1 if any key is invalid or has no remaining balance
+    if any(not r.get("valid") or r.get("remaining") is not None and r["remaining"] <= 0 for r in results):
+        sys.exit(1)
+
+
+if __name__ == "__main__":
+    main()
