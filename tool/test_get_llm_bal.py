@@ -50,7 +50,7 @@ class BalanceSummaryTests(unittest.TestCase):
 
         self.assertTrue(get_llm_bal.has_invalid_or_depleted_balance(results))
 
-    def test_main_outputs_single_prefixed_remain_total_line_for_single_key(self):
+    def test_main_outputs_total_remaining_on_same_line_for_single_key(self):
         result = {"valid": True, "remaining": "7.886", "total": "300", "unit": "USD"}
 
         with patch("get_llm_bal.check_balance", return_value=result), patch.object(
@@ -62,7 +62,39 @@ class BalanceSummaryTests(unittest.TestCase):
             with redirect_stdout(stdout):
                 get_llm_bal.main()
 
-        self.assertEqual(stdout.getvalue(), "[sk-55a********] ACTIVE | 7.886 / 300 USD (Remain/Total)\n")
+        self.assertEqual(
+            stdout.getvalue(),
+            "[sk-55a********] ACTIVE | 7.886 / 300 USD (Remain/Total) | Total Remaining: 7.886 USD\n",
+        )
+
+    def test_main_outputs_total_remaining_on_same_line_for_multiple_keys(self):
+        results = [
+            {"valid": True, "remaining": "1.25", "total": None, "unit": "USD"},
+            {"valid": True, "remaining": "2.75", "total": None, "unit": "USD"},
+        ]
+
+        with patch("get_llm_bal.check_balance", side_effect=results), patch.object(
+            sys,
+            "argv",
+            [
+                "get_llm_bal.py",
+                "-u",
+                "https://api.example.com",
+                "-k",
+                "abcdef123456",
+                "ghijkl123456",
+            ],
+        ):
+            stdout = io.StringIO()
+            with redirect_stdout(stdout):
+                get_llm_bal.main()
+
+        self.assertEqual(
+            stdout.getvalue(),
+            "[abcdef******] ACTIVE | 1.250 USD (Remain) | "
+            "[ghijkl******] ACTIVE | 2.750 USD (Remain) | "
+            "Total Remaining: 4 USD\n",
+        )
 
     def test_check_balance_reads_scalar_quota_as_total(self):
         body = b'{"remaining": "7.886", "quota": 300, "unit": "USD"}'

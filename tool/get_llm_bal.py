@@ -110,6 +110,13 @@ def format_balance_summary(result):
     return f"{remain} {unit} (Remain)"
 
 
+def format_result_summary(result):
+    if result.get("error"):
+        return f"[{result['key']}] ERROR: {result['error']}"
+    status = "ACTIVE" if result["valid"] else "INACTIVE"
+    return f"[{result['key']}] {status} | {format_balance_summary(result)}"
+
+
 def has_invalid_or_depleted_balance(results):
     for r in results:
         if not r.get("valid"):
@@ -149,22 +156,9 @@ def main():
         )
         return
 
-    if len(results) == 1:
-        result = results[0]
-        if result.get("error"):
-            print(f"[{result['key']}] ERROR: {result['error']}")
-        else:
-            status = "ACTIVE" if result["valid"] else "INACTIVE"
-            print(f"[{result['key']}] {status} | {format_balance_summary(result)}")
-    else:
-        for r in results:
-            if r.get("error"):
-                print(f"[{r['key']}] ERROR: {r['error']}")
-            else:
-                status = "ACTIVE" if r["valid"] else "INACTIVE"
-                print(f"[{r['key']}] {status} | {format_balance_summary(r)}")
-
-        print(f"Total Remaining: {format_totals(total_remaining)}")
+    summaries = [format_result_summary(result) for result in results]
+    summaries.append(f"Total Remaining: {format_totals(total_remaining)}")
+    print(" | ".join(summaries))
 
     ## exit 1 if any key is invalid or has no remaining balance
     if has_invalid_or_depleted_balance(results):
