@@ -1,4 +1,7 @@
+import io
+import sys
 import unittest
+from contextlib import redirect_stdout
 from unittest.mock import patch
 
 import get_llm_bal
@@ -46,6 +49,28 @@ class BalanceSummaryTests(unittest.TestCase):
         results = [{"valid": True, "remaining": "0", "unit": "USD"}]
 
         self.assertTrue(get_llm_bal.has_invalid_or_depleted_balance(results))
+
+    def test_main_outputs_single_prefixed_remain_total_line_for_single_key(self):
+        result = {"valid": True, "remaining": "7.886", "total": "300", "unit": "USD"}
+
+        with patch("get_llm_bal.check_balance", return_value=result), patch.object(
+            sys,
+            "argv",
+            ["get_llm_bal.py", "-u", "https://api.example.com", "-k", "sk-55a123456789"],
+        ):
+            stdout = io.StringIO()
+            with redirect_stdout(stdout):
+                get_llm_bal.main()
+
+        self.assertEqual(stdout.getvalue(), "[sk-55a********] ACTIVE | 7.886 / 300 USD (Remain/Total)\n")
+
+    def test_check_balance_reads_scalar_quota_as_total(self):
+        body = b'{"remaining": "7.886", "quota": 300, "unit": "USD"}'
+
+        with patch("get_llm_bal.urlopen", return_value=FakeResponse(body)):
+            result = get_llm_bal.check_balance("https://api.example.com", "key")
+
+        self.assertEqual(result["total"], 300)
 
 
 if __name__ == "__main__":

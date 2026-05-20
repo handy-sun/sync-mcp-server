@@ -23,7 +23,7 @@ def check_balance(base_url: str, api_key: str) -> dict:
         return {"valid": False, "error": str(e.reason)}
 
     remaining = first_present(data, "remaining", "quota.remaining", "balance")
-    total = first_present(data, "total", "quota.total", "limit")
+    total = first_numeric_present(data, "total", "quota.total", "limit", "quota")
     unit = first_present(data, "unit", "quota.unit") or "USD"
     is_valid = data.get("is_active", data.get("isValid", True))
 
@@ -35,6 +35,15 @@ def first_present(d: dict, *paths: str):
     for path in paths:
         value = deep_get(d, path) if "." in path else d.get(path)
         if value is not None:
+            return value
+    return None
+
+
+def first_numeric_present(d: dict, *paths: str):
+    """Return the first value that can be formatted as a numeric amount."""
+    for path in paths:
+        value = deep_get(d, path) if "." in path else d.get(path)
+        if to_decimal(value) is not None:
             return value
     return None
 
@@ -92,6 +101,15 @@ def format_totals(totals):
     return ", ".join(f"{amount} {unit}" for unit, amount in totals.items())
 
 
+def format_balance_summary(result):
+    remain = format_decimal(to_decimal(result["remaining"])) if result["remaining"] is not None else "N/A"
+    total = format_decimal(to_decimal(result["total"])) if result.get("total") is not None else None
+    unit = result["unit"]
+    if total is not None:
+        return f"{remain} / {total} {unit} (Remain/Total)"
+    return f"{remain} {unit} (Remain)"
+
+
 def has_invalid_or_depleted_balance(results):
     for r in results:
         if not r.get("valid"):
@@ -131,20 +149,22 @@ def main():
         )
         return
 
-    for r in results:
-        if r.get("error"):
-            print(f"[{r['key']}] ERROR: {r['error']}")
+    if len(results) == 1:
+        result = results[0]
+        if result.get("error"):
+            print(f"[{result['key']}] ERROR: {result['error']}")
         else:
-            status = "ACTIVE" if r["valid"] else "INACTIVE"
-            remain = format_decimal(to_decimal(r["remaining"])) if r["remaining"] is not None else "N/A"
-            total = format_decimal(to_decimal(r["total"])) if r.get("total") is not None else None
-            unit = r["unit"]
-            if total is not None:
-                print(f"[{r['key']}] {status} | {remain} / {total} {unit} (Remain/Total)")
+            status = "ACTIVE" if result["valid"] else "INACTIVE"
+            print(f"[{result['key']}] {status} | {format_balance_summary(result)}")
+    else:
+        for r in results:
+            if r.get("error"):
+                print(f"[{r['key']}] ERROR: {r['error']}")
             else:
-                print(f"[{r['key']}] {status} | {remain} {unit} (Remain)")
+                status = "ACTIVE" if r["valid"] else "INACTIVE"
+                print(f"[{r['key']}] {status} | {format_balance_summary(r)}")
 
-    print(f"Total Remaining: {format_totals(total_remaining)}")
+        print(f"Total Remaining: {format_totals(total_remaining)}")
 
     ## exit 1 if any key is invalid or has no remaining balance
     if has_invalid_or_depleted_balance(results):
